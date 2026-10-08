@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>সহজ POS</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 12px; background: #f4f6f8; color: #222; }
+  h1 { font-size: 20px; margin: 4px 0 12px; }
+  h2 { font-size: 16px; margin: 16px 0 8px; }
+  .card { background: #fff; border-radius: 10px; padding: 12px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  input { width: 100%; padding: 10px; margin: 4px 0; border: 1px solid #ccc; border-radius: 8px; font-size: 16px; }
+  button { padding: 10px 14px; border: 0; border-radius: 8px; background: #1a73e8; color: #fff; font-size: 15px; margin: 4px 2px; }
+  button.green { background: #188038; }
+  button.red { background: #d93025; }
+  .row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #eee; }
+  .total { font-size: 20px; font-weight: bold; margin-top: 8px; }
+  small { color: #666; }
+</style>
+</head>
+<body>
+
+<h1>সহজ POS</h1>
+
+<div class="card">
+  <h2>নতুন পণ্য যোগ করুন</h2>
+  <input id="pName" placeholder="পণ্যের নাম">
+  <input id="pPrice" type="number" placeholder="দাম (টাকা)">
+  <input id="pStock" type="number" placeholder="স্টক সংখ্যা">
+  <button onclick="addProduct()">যোগ করুন</button>
+</div>
+
+<div class="card">
+  <h2>পণ্য তালিকা</h2>
+  <div id="products"></div>
+</div>
+
+<div class="card">
+  <h2>বিক্রয় (কার্ট)</h2>
+  <div id="cart"></div>
+  <div class="total">মোট: <span id="cartTotal">0</span> টাকা</div>
+  <input id="customer" placeholder="ক্রেতার নাম (ঐচ্ছিক)">
+  <button class="green" onclick="checkout(false)">নগদ বিক্রয়</button>
+  <button class="red" onclick="checkout(true)">বাকি বিক্রয়</button>
+  <button onclick="clearCart()">কার্ট খালি</button>
+</div>
+
+<div class="card">
+  <h2>বাকি তালিকা</h2>
+  <div id="dues"></div>
+</div>
+
+<div class="card">
+  <h2>আজকের বিক্রয়</h2>
+  <div id="sales"></div>
+  <button onclick="backup()">ব্যাকআপ ডাউনলোড</button>
+</div>
+
+<script>
+  let data = JSON.parse(localStorage.getItem('sahajPOS') || '{"products":[],"cart":[],"sales":[],"dues":{}}');
+  let cart = data.cart;
+
+  function save() {
+    data.cart = cart;
+    localStorage.setItem('sahajPOS', JSON.stringify(data));
+    render();
+  }
+
+  function addProduct() {
+    const name = pName.value.trim();
+    const price = Number(pPrice.value);
+    const stock = Number(pStock.value);
+    if (!name || !price) return alert('নাম ও দাম দিন');
+    data.products.push({ id: Date.now(), name, price, stock });
+    pName.value = pPrice.value = pStock.value = '';
+    save();
+  }
+
+  function addToCart(id) {
+    const p = data.products.find(x => x.id === id);
+    if (!p || p.stock <= 0) return alert('স্টক শেষ');
+    const item = cart.find(x => x.id === id);
+    if (item) item.qty++; else cart.push({ id, name: p.name, price: p.price, qty: 1 });
+    p.stock--;
+    save();
+  }
+
+  function removeFromCart(i) {
+    const item = cart[i];
+    const p = data.products.find(x => x.id === item.id);
+    if (p) p.stock += item.qty;
+    cart.splice(i, 1);
+    save();
+  }
+
+  function clearCart() {
+    cart.forEach(item => {
+      const p = data.products.find(x => x.id === item.id);
+      if (p) p.stock += item.qty;
+    });
+    cart = [];
+    save();
+  }
+
+  function cartTotal() {
+    return cart.reduce((s, i) => s + i.price * i.qty, 0);
+  }
+
+  function checkout(isDue) {
+    if (!cart.length) return alert('কার্ট খালি');
+    const total = cartTotal();
+    const customer = customerInput().trim() || 'অজানা';
+    data.sales.push({ date: new Date().toLocaleString('bn-BD'), customer, items: cart.slice(), total, due: isDue });
+    if (isDue) data.dues[customer] = (data.dues[customer] || 0) + total;
+    cart = [];
+    customer.value = '';
+    save();
+  }
+
+  function customerInput() { return document.getElementById('customer').value; }
+
+  function payDue(name) {
+    delete data.dues[name];
+    save();
+  }
+
+  function render() {
+    products.innerHTML = data.products.map(p =>
+      `<div class="row"><div>${p.name}<br><small>${p.price} টাকা | স্টক: ${p.stock}</small></div>
+       <button onclick="addToCart(${p.id})">+ বিক্রয়</button></div>`).join('') || '<small>কোনো পণ্য নেই</small>';
+
+    cartDiv.innerHTML = cart.map((i, idx) =>
+      `<div class="row"><div>${i.name} x ${i.qty}</div>
+       <div>${i.price * i.qty} <button class="red" onclick="removeFromCart(${idx})">X</button></div></div>`).join('') || '<small>কার্ট খালি</small>';
+
+    cartTotal_span();
+    dues.innerHTML = Object.entries(data.dues).map(([n, a]) =>
+      `<div class="row"><div>${n}</div><div>${a} টাকা <button class="green" onclick="payDue('${n}')">পরিশোধ</button></div></div>`).join('') || '<small>কোনো বাকি নেই</small>';
+
+    const today = new Date().toLocaleDateString('bn-BD');
+    sales.innerHTML = data.sales.filter(s => s.date.startsWith(today)).slice(-20).reverse().map(s =>
+      `<div class="row"><div>${s.customer} ${s.due ? '(বাকি)' : ''}<br><small>${s.date}</small></div><div>${s.total} টাকা</div></div>`).join('') || '<small>আজ কোনো বিক্রয় নেই</small>';
+  }
+
+  function cartTotal_span() {
+    document.getElementById('cartTotal').textContent = cartTotal();
+  }
+
+  function backup() {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'sahaj-pos-backup.json';
+    a.click();
+  }
+
+  render();
+</script>
+</body>
+</html>
